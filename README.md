@@ -1,36 +1,66 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# BuildOS
 
-## Getting Started
+BuildOS is a construction operations platform for small and growing construction businesses.
 
-First, run the development server:
+## Product direction
+
+BuildOS connects projects, site activity, tasks, labour, materials, procurement, expenses, quotations, invoices, payments and reporting so owners can understand what is happening and what needs attention.
+
+The product is being built as a real SaaS product, not a static demo.
+
+## Current architecture
+
+- Next.js + TypeScript + App Router
+- Supabase PostgreSQL
+- Supabase Auth
+- Supabase Storage
+- GitHub as source control
+- Cloud-first development with GitHub Codespaces
+
+## Customer lifecycle
+
+`Demo → Purchase → Signup → Onboarding → Setup → Test → Go Live → Live`
+
+A new workspace starts in Setup mode with a default seven-day setup period. Customers configure the workspace, import master data, test workflows and train their team. They decide when to go live.
+
+At Go Live:
+
+- Setup/test transactional data is permanently deleted.
+- Master and configuration data is retained.
+- The operation is performed by a protected database function.
+- Go Live events are recorded for auditability.
+
+BuildOS does not archive setup/test transactions.
+
+## Development
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Run the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The application requires these environment variables locally:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```env
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Never put a Supabase secret/service-role key in a `NEXT_PUBLIC_*` variable or browser code.
 
-## Learn More
+## Product principles
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Simple before powerful.
+2. Mobile-first for site users.
+3. One source of truth per project.
+4. Important actions should be traceable.
+5. AI assists decisions; it does not invent facts.
+6. Build for small contractors first.
+7. Keep powerful backend capabilities behind simple user experiences.
