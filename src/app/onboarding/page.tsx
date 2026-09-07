@@ -70,6 +70,9 @@ export default function OnboardingPage() {
     )
   }
 
+  const inputClassName =
+    'w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-slate-900 placeholder:text-slate-400 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100'
+
   return (
     <main className="min-h-screen bg-slate-50 py-10 px-6">
       <div className="mx-auto max-w-2xl">
@@ -102,7 +105,7 @@ export default function OnboardingPage() {
                 required
                 value={fullName}
                 onChange={(event) => setFullName(event.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                className={inputClassName}
                 placeholder="Your full name"
               />
             </div>
@@ -122,7 +125,7 @@ export default function OnboardingPage() {
                   required
                   value={organizationName}
                   onChange={(event) => setOrganizationName(event.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                  className={inputClassName}
                   placeholder="Your construction company"
                 />
               </div>
@@ -137,7 +140,7 @@ export default function OnboardingPage() {
                   maxLength={20}
                   value={clientCode}
                   onChange={(event) => setClientCode(event.target.value.toUpperCase())}
-                  className="w-full rounded-lg border border-slate-300 px-4 py-3 uppercase outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                  className={`${inputClassName} uppercase`}
                   placeholder="ABC001"
                 />
                 <p className="mt-1 text-xs text-slate-400">A unique code for your organization.</p>
@@ -159,7 +162,7 @@ export default function OnboardingPage() {
                   required
                   value={branchName}
                   onChange={(event) => setBranchName(event.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                  className={inputClassName}
                   placeholder="Chennai"
                 />
               </div>
@@ -174,7 +177,7 @@ export default function OnboardingPage() {
                   maxLength={20}
                   value={branchCode}
                   onChange={(event) => setBranchCode(event.target.value.toUpperCase())}
-                  className="w-full rounded-lg border border-slate-300 px-4 py-3 uppercase outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                  className={`${inputClassName} uppercase`}
                   placeholder="CHE001"
                 />
               </div>
