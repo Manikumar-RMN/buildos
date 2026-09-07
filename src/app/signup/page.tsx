@@ -1,9 +1,11 @@
 'use client'
 
 import { FormEvent, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/browser'
 
 export default function SignupPage() {
+  const router = useRouter()
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -53,7 +55,8 @@ export default function SignupPage() {
       return
     }
 
-    window.location.href = '/onboarding'
+    router.push('/onboarding')
+    router.refresh()
   }
 
   return (
@@ -148,12 +151,13 @@ export default function SignupPage() {
 
           <div className="mt-6 text-center text-sm text-slate-500">
             Already have an account?{' '}
-            <a
-              href="/login"
+            <button
+              type="button"
+              onClick={() => router.push('/login')}
               className="font-semibold text-blue-600 hover:text-blue-700"
             >
               Sign in
-            </a>
+            </button>
           </div>
         </div>
       </div>
