@@ -33,6 +33,9 @@ export default function LoginPage() {
     router.refresh()
   }
 
+  const inputClassName =
+    'w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-slate-900 placeholder:text-slate-400 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100'
+
   return (
     <main className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
       <div className="w-full max-w-md">
@@ -54,7 +57,7 @@ export default function LoginPage() {
                 required
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-blue-600"
+                className={inputClassName}
                 placeholder="you@company.com"
               />
             </div>
@@ -68,7 +71,7 @@ export default function LoginPage() {
                 required
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-4 py-3 outline-none focus:border-blue-600"
+                className={inputClassName}
                 placeholder="••••••••"
               />
             </div>
