@@ -2,9 +2,9 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/browser'
 
 type ImportType = 'customers' | 'vendors' | 'workers' | 'materials'
-
 type Row = Record<string, string>
 
 const definitions: Record<ImportType, { title: string; description: string; columns: string[]; sample: string }> = {
@@ -30,7 +30,9 @@ export default function ImportPage() {
   const [rows, setRows] = useState<Row[]>([])
   const [fileName, setFileName] = useState('')
   const [error, setError] = useState('')
+  const [result, setResult] = useState<{ imported?: number; errors?: { row: number; error: string }[] } | null>(null)
   const [step, setStep] = useState<'upload' | 'preview'>('upload')
+  const [importing, setImporting] = useState(false)
 
   const definition = definitions[type]
   const validation = useMemo(() => rows.map((row, index) => {
@@ -41,12 +43,12 @@ export default function ImportPage() {
   const invalidRows = validation.length - validRows
 
   function changeType(value: ImportType) {
-    setType(value); setRows([]); setFileName(''); setError(''); setStep('upload')
+    setType(value); setRows([]); setFileName(''); setError(''); setResult(null); setStep('upload')
   }
 
   function handleFile(file: File | undefined) {
     if (!file) return
-    setError(''); setFileName(file.name)
+    setError(''); setResult(null); setFileName(file.name)
     if (!file.name.toLowerCase().endsWith('.csv')) { setError('Please upload a CSV file.'); return }
     const reader = new FileReader()
     reader.onload = () => {
@@ -64,6 +66,17 @@ export default function ImportPage() {
     const link = document.createElement('a'); link.href = url; link.download = `buildos-${type}-template.csv`; link.click(); URL.revokeObjectURL(url)
   }
 
+  async function importCustomers() {
+    if (type !== 'customers' || invalidRows > 0 || !rows.length) return
+    setImporting(true); setError(''); setResult(null)
+    const supabase = createClient()
+    const { data, error: rpcError } = await supabase.rpc('import_customers', { p_rows: rows })
+    if (rpcError) setError(rpcError.message)
+    else if (!data?.success) setResult({ errors: data?.errors ?? [] })
+    else { setResult({ imported: data.imported, errors: [] }); setRows([]); setStep('upload'); setFileName('') }
+    setImporting(false)
+  }
+
   return <main className="min-h-screen bg-slate-50 text-slate-900">
     <header className="border-b border-slate-200 bg-white"><div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4"><div><div className="text-sm font-bold tracking-widest text-blue-600">BUILDOS</div><div className="text-xs text-slate-500">Master data import</div></div><button onClick={() => router.push('/setup')} className="text-sm font-medium text-slate-600 hover:text-slate-900">Back to setup</button></div></header>
     <div className="mx-auto max-w-6xl px-6 py-10">
@@ -76,9 +89,11 @@ export default function ImportPage() {
         </div>
         <div className="mt-7 flex flex-col gap-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold">{fileName || 'Choose a CSV file'}</p><p className="mt-1 text-sm text-slate-500">Required columns: {definition.columns.join(', ')}</p></div><div className="flex gap-2"><button onClick={downloadTemplate} className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700">Download template</button><label className="cursor-pointer rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">Choose CSV<input type="file" accept=".csv,text/csv" className="hidden" onChange={e => handleFile(e.target.files?.[0])} /></label></div></div>
         {error && <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-        {step === 'preview' && <div className="mt-7"><div className="flex flex-wrap gap-3 text-sm"><span className="rounded-lg bg-emerald-50 px-3 py-2 font-semibold text-emerald-700">{validRows} valid</span><span className={`rounded-lg px-3 py-2 font-semibold ${invalidRows ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-600'}`}>{invalidRows} with errors</span><span className="rounded-lg bg-slate-100 px-3 py-2 font-semibold text-slate-600">{rows.length} total</span></div><div className="mt-4 overflow-x-auto rounded-xl border border-slate-200"><table className="min-w-full text-left text-sm"><thead className="bg-slate-50"><tr>{definition.columns.map(column => <th key={column} className="px-4 py-3 font-semibold text-slate-600">{column}</th>)}<th className="px-4 py-3 font-semibold text-slate-600">Validation</th></tr></thead><tbody>{rows.slice(0, 50).map((row, i) => { const result = validation[i]; return <tr key={i} className="border-t border-slate-100"><td className="px-4 py-3">{definition.columns.map(column => <div key={column} className="md:hidden"><span className="text-xs text-slate-400">{column}: </span>{row[column] || '—'}</div>) }<span className="hidden md:inline">{row[definition.columns[0]] || '—'}</span></td>{definition.columns.slice(1).map(column => <td key={column} className="hidden px-4 py-3 md:table-cell">{row[column] || '—'}</td>)}<td className="px-4 py-3">{result.valid ? <span className="text-emerald-700">Ready</span> : <span className="text-red-700">Missing: {result.missing.join(', ')}</span>}</td></tr> })}</tbody></table></div>{rows.length > 50 && <p className="mt-2 text-xs text-slate-500">Showing first 50 rows in the preview. Validation covers all uploaded rows.</p>}<div className="mt-5 flex justify-end"><button disabled={!rows.length || invalidRows > 0} onClick={() => setError('Import execution will be connected after database-side import validation is finalized.')} className="rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">Import {validRows} rows</button></div></div>}
+        {result?.imported !== undefined && <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">Successfully imported {result.imported} customers.</div>}
+        {result?.errors && result.errors.length > 0 && <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"><strong>Import blocked.</strong><ul className="mt-2 list-disc pl-5">{result.errors.slice(0, 20).map((item, i) => <li key={i}>Row {item.row}: {item.error}</li>)}</ul></div>}
+        {step === 'preview' && <div className="mt-7"><div className="flex flex-wrap gap-3 text-sm"><span className="rounded-lg bg-emerald-50 px-3 py-2 font-semibold text-emerald-700">{validRows} valid</span><span className={`rounded-lg px-3 py-2 font-semibold ${invalidRows ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-600'}`}>{invalidRows} with errors</span><span className="rounded-lg bg-slate-100 px-3 py-2 font-semibold text-slate-600">{rows.length} total</span></div><div className="mt-4 overflow-x-auto rounded-xl border border-slate-200"><table className="min-w-full text-left text-sm"><thead className="bg-slate-50"><tr>{definition.columns.map(column => <th key={column} className="px-4 py-3 font-semibold text-slate-600">{column}</th>)}<th className="px-4 py-3 font-semibold text-slate-600">Validation</th></tr></thead><tbody>{rows.slice(0, 50).map((row, i) => { const r = validation[i]; return <tr key={i} className="border-t border-slate-100"><td className="px-4 py-3">{definition.columns.map(column => <div key={column} className="md:hidden"><span className="text-xs text-slate-400">{column}: </span>{row[column] || '—'}</div>)}<span className="hidden md:inline">{row[definition.columns[0]] || '—'}</span></td>{definition.columns.slice(1).map(column => <td key={column} className="hidden px-4 py-3 md:table-cell">{row[column] || '—'}</td>)}<td className="px-4 py-3">{r.valid ? <span className="text-emerald-700">Ready</span> : <span className="text-red-700">Missing: {r.missing.join(', ')}</span>}</td></tr> })}</tbody></table></div><div className="mt-5 flex justify-end"><button disabled={!rows.length || invalidRows > 0 || type !== 'customers' || importing} onClick={importCustomers} className="rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">{importing ? 'Importing...' : `Import ${validRows} customers`}</button></div></div>}
       </div>
-      <div className="mt-6 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800"><strong>Safety:</strong> this first version validates the file in the browser and does not write anything to your database. Import execution will be enabled only after server-side validation and duplicate handling are in place.</div>
+      <div className="mt-6 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800"><strong>Safety:</strong> Customer imports are validated again on the server, checked for duplicates, and written only as one complete transaction. Other master types remain preview-only until their server-side import rules are implemented.</div>
     </div>
   </main>
 }
