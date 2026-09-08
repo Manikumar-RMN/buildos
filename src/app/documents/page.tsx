@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/browser'
 
 type Project = { id: string; name: string }
-type Doc = { id: string; name: string; file_url: string | null; document_type: string | null; project_id: string | null; created_at: string; projects: { name: string } | null }
+type Doc = { id: string; name: string; storage_path: string | null; file_url: string | null; document_type: string | null; project_id: string | null; created_at: string; projects: { name: string } | null }
 
 const BUCKET = 'buildos-files'
 const MAX_FILE_SIZE = 10 * 1024 * 1024
@@ -19,6 +19,7 @@ export default function DocumentsPage() {
   const [form, setForm] = useState({ name: '', project_id: '', document_type: 'General', notes: '' })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [openingId, setOpeningId] = useState<string | null>(null)
   const [error, setError] = useState('')
 
   async function load() {
@@ -30,7 +31,7 @@ export default function DocumentsPage() {
     setOrgId(m.organization_id)
     const [{ data: p }, { data: d }] = await Promise.all([
       s.from('projects').select('id,name').eq('organization_id', m.organization_id).order('name'),
-      s.from('documents').select('id,name,file_url,document_type,project_id,created_at,projects(name)').eq('organization_id', m.organization_id).order('created_at', { ascending: false }).limit(100),
+      s.from('documents').select('id,name,storage_path,file_url,document_type,project_id,created_at,projects(name)').eq('organization_id', m.organization_id).order('created_at', { ascending: false }).limit(100),
     ])
     setProjects(p ?? [])
     setDocs((d ?? []) as Doc[])
@@ -54,13 +55,13 @@ export default function DocumentsPage() {
     const { error: uploadError } = await s.storage.from(BUCKET).upload(filePath, file, { contentType: file.type, upsert: false })
     if (uploadError) { setError(uploadError.message); setSaving(false); return }
 
-    const { data: signed } = await s.storage.from(BUCKET).createSignedUrl(filePath, 60 * 60)
     const { error: insertError } = await s.from('documents').insert({
       organization_id: orgId,
       project_id: form.project_id || null,
       name: form.name.trim(),
       document_type: form.document_type,
-      file_url: signed?.signedUrl ?? null,
+      storage_path: filePath,
+      file_url: null,
       notes: form.notes.trim() || null,
       uploaded_by: u.user.id,
     })
@@ -79,8 +80,18 @@ export default function DocumentsPage() {
   }
 
   async function openDocument(doc: Doc) {
-    if (!doc.file_url) return
-    window.open(doc.file_url, '_blank', 'noopener,noreferrer')
+    setOpeningId(doc.id); setError('')
+    const s = createClient()
+    const path = doc.storage_path
+    if (!path) {
+      if (doc.file_url) window.open(doc.file_url, '_blank', 'noopener,noreferrer')
+      setOpeningId(null)
+      return
+    }
+    const { data, error: signedError } = await s.storage.from(BUCKET).createSignedUrl(path, 60 * 60)
+    if (signedError || !data?.signedUrl) setError(signedError?.message || 'Unable to open document.')
+    else window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
+    setOpeningId(null)
   }
 
   if (loading) return <main className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-500">Loading documents...</main>
@@ -104,7 +115,7 @@ export default function DocumentsPage() {
             <button disabled={saving} className="w-full rounded-lg bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{saving ? 'Uploading...' : 'Upload document'}</button>
           </div>
         </form>
-        <section className="space-y-3">{docs.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">No documents yet.</div> : docs.map(d => <article key={d.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-4"><div><h2 className="font-semibold">{d.name}</h2><p className="mt-1 text-sm text-slate-500">{d.projects?.name || 'Organization / General'} • {d.document_type || 'General'}</p></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">Document</span></div>{d.file_url && <button type="button" onClick={() => openDocument(d)} className="mt-3 text-sm font-semibold text-blue-600">Open document</button>}<p className="mt-2 text-xs text-slate-400">Added {new Date(d.created_at).toLocaleDateString('en-IN')}</p></article>)}</section>
+        <section className="space-y-3">{docs.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">No documents yet.</div> : docs.map(d => <article key={d.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-4"><div><h2 className="font-semibold">{d.name}</h2><p className="mt-1 text-sm text-slate-500">{d.projects?.name || 'Organization / General'} • {d.document_type || 'General'}</p></div><span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">Document</span></div>{(d.storage_path || d.file_url) && <button type="button" disabled={openingId === d.id} onClick={() => openDocument(d)} className="mt-3 text-sm font-semibold text-blue-600 disabled:opacity-50">{openingId === d.id ? 'Opening...' : 'Open document'}</button>}<p className="mt-2 text-xs text-slate-400">Added {new Date(d.created_at).toLocaleDateString('en-IN')}</p></article>)}</section>
       </div>
     </div>
   </main>
