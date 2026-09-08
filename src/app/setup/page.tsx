@@ -7,7 +7,6 @@ import { createClient } from '@/lib/supabase/browser'
 type Lifecycle = { mode: 'setup' | 'live' | 'expired' | 'suspended'; setup_started_at: string; setup_expires_at: string; go_live_at: string | null }
 type ExtensionRequest = { id: string; requested_days: number; reason: string | null; status: string; created_at: string }
 type Progress = { label: string; count: number; href: string; required: boolean }
-type StoragePath = { bucket_id: string; storage_path: string }
 
 export default function SetupPage() {
   const router = useRouter()
@@ -72,32 +71,33 @@ export default function SetupPage() {
   async function goLive() {
     const confirmed = window.confirm('Go live now? BuildOS will permanently delete setup/test transactions and their uploaded setup files. Your master and configuration data will be kept. This cannot be undone.')
     if (!confirmed) return
-    setGoLiveLoading(true); setMessage('Preparing setup files for cleanup...')
+    setGoLiveLoading(true); setMessage('Completing Go Live...')
     const supabase = createClient()
 
-    const { data: membership } = await supabase.from('organization_members').select('organization_id').eq('user_id', (await supabase.auth.getUser()).data.user?.id ?? '').eq('status', 'active').limit(1).maybeSingle()
-    if (!membership) { setMessage('Organization membership could not be verified.'); setGoLiveLoading(false); return }
-
-    const { data: storagePaths, error: pathError } = await supabase.rpc('get_setup_storage_paths', { target_org_id: membership.organization_id })
-    if (pathError) { setMessage(pathError.message); setGoLiveLoading(false); return }
-
-    setMessage('Completing Go Live...')
     const { error } = await supabase.rpc('go_live_workspace')
     if (error) { setMessage(error.message); setGoLiveLoading(false); return }
 
-    const paths = (storagePaths ?? []) as StoragePath[]
-    let storageDeleted = 0
-    const storageErrors: string[] = []
-    for (const item of paths) {
-      const { error: removeError } = await supabase.storage.from(item.bucket_id).remove([item.storage_path])
-      if (removeError) storageErrors.push(item.storage_path)
-      else storageDeleted += 1
-    }
+    setMessage('Workspace is live. Cleaning up setup files securely...')
+    try {
+      const response = await fetch('/api/setup/storage-cleanup', { method: 'POST' })
+      const result = await response.json()
+      if (!response.ok) {
+        await loadLifecycle()
+        setMessage(`Your workspace is now live, but storage cleanup could not be completed: ${result.error ?? 'Unknown error'}. Please contact BuildOS support.`)
+        setGoLiveLoading(false)
+        return
+      }
 
-    await loadLifecycle()
-    setMessage(storageErrors.length === 0
-      ? `Your workspace is now live. Setup/test transactions and ${storageDeleted} uploaded setup file(s) were removed.`
-      : `Your workspace is now live, but ${storageErrors.length} setup file(s) could not be removed. Please contact BuildOS support.`)
+      await loadLifecycle()
+      if ((result.failed ?? 0) > 0) {
+        setMessage(`Your workspace is now live, but ${result.failed} setup file(s) could not be removed. Please contact BuildOS support.`)
+      } else {
+        setMessage(`Your workspace is now live. Setup/test transactions and ${result.processed ?? 0} uploaded setup file(s) were removed.`)
+      }
+    } catch {
+      await loadLifecycle()
+      setMessage('Your workspace is now live, but storage cleanup could not be completed. Please contact BuildOS support.')
+    }
     setGoLiveLoading(false)
   }
 
