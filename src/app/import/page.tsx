@@ -15,13 +15,42 @@ const definitions: Record<ImportType, { title: string; description: string; colu
 }
 
 function parseCsv(text: string): Row[] {
-  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
-  if (lines.length < 2) return []
-  const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
-  return lines.slice(1).map(line => {
-    const values = line.split(',')
-    return Object.fromEntries(headers.map((header, index) => [header, (values[index] ?? '').trim()]))
-  })
+  const rows: string[][] = []
+  let row: string[] = []
+  let value = ''
+  let quoted = false
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i]
+    const next = text[i + 1]
+    if (char === '"') {
+      if (quoted && next === '"') { value += '"'; i++ }
+      else quoted = !quoted
+    } else if (char === ',' && !quoted) {
+      row.push(value.trim()); value = ''
+    } else if ((char === '\n' || char === '\r') && !quoted) {
+      if (char === '\r' && next === '\n') i++
+      row.push(value.trim()); value = ''
+      if (row.some(cell => cell !== '')) rows.push(row)
+      row = []
+    } else value += char
+  }
+  if (value || row.length) {
+    row.push(value.trim())
+    if (row.some(cell => cell !== '')) rows.push(row)
+  }
+  if (rows.length < 2) return []
+
+  const headers = rows[0].map(h => h.trim().toLowerCase())
+  if (headers.some(Boolean) === false || new Set(headers).size !== headers.length) return []
+  return rows.slice(1).map(values => Object.fromEntries(headers.map((header, index) => [header, (values[index] ?? '').trim()])))
+}
+
+function validateRow(row: Row, columns: string[]) {
+  const missing = columns.filter(column => !row[column])
+  const errors = [...missing.map(column => `${column} is required`)]
+  if (row.email && !/^\S+@\S+\.\S+$/.test(row.email)) errors.push('email is not valid')
+  return { missing, errors, valid: errors.length === 0 }
 }
 
 export default function ImportPage() {
@@ -35,10 +64,7 @@ export default function ImportPage() {
   const [importing, setImporting] = useState(false)
 
   const definition = definitions[type]
-  const validation = useMemo(() => rows.map((row, index) => {
-    const missing = definition.columns.filter(column => !row[column])
-    return { index: index + 2, missing, valid: missing.length === 0 }
-  }), [rows, definition])
+  const validation = useMemo(() => rows.map((row, index) => ({ index: index + 2, ...validateRow(row, definition.columns) })), [rows, definition])
   const validRows = validation.filter(row => row.valid).length
   const invalidRows = validation.length - validRows
 
@@ -53,7 +79,7 @@ export default function ImportPage() {
     const reader = new FileReader()
     reader.onload = () => {
       const parsed = parseCsv(String(reader.result ?? ''))
-      if (!parsed.length) { setError('The file needs a header row and at least one data row.'); setRows([]); return }
+      if (!parsed.length) { setError('Could not read the CSV. Check that it has a unique header row and at least one data row.'); setRows([]); return }
       setRows(parsed); setStep('preview')
     }
     reader.onerror = () => setError('Could not read this file. Please try again.')
@@ -90,7 +116,7 @@ export default function ImportPage() {
         <div className="mt-7 flex flex-col gap-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold">{fileName || 'Choose a CSV file'}</p><p className="mt-1 text-sm text-slate-500">Required columns: {definition.columns.join(', ')}</p></div><div className="flex gap-2"><button onClick={downloadTemplate} className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700">Download template</button><label className="cursor-pointer rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">Choose CSV<input type="file" accept=".csv,text/csv" className="hidden" onChange={e => handleFile(e.target.files?.[0])} /></label></div></div>
         {error && <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
         {result && <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">Successfully imported {result.imported} {definition.title.toLowerCase()}.</div>}
-        {step === 'preview' && <div className="mt-7"><div className="flex flex-wrap gap-3 text-sm"><span className="rounded-lg bg-emerald-50 px-3 py-2 font-semibold text-emerald-700">{validRows} valid</span><span className={`rounded-lg px-3 py-2 font-semibold ${invalidRows ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-600'}`}>{invalidRows} with errors</span><span className="rounded-lg bg-slate-100 px-3 py-2 font-semibold text-slate-600">{rows.length} total</span></div><div className="mt-4 overflow-x-auto rounded-xl border border-slate-200"><table className="min-w-full text-left text-sm"><thead className="bg-slate-50"><tr>{definition.columns.map(column => <th key={column} className="px-4 py-3 font-semibold text-slate-600">{column}</th>)}<th className="px-4 py-3 font-semibold text-slate-600">Validation</th></tr></thead><tbody>{rows.slice(0, 50).map((row, i) => { const r = validation[i]; return <tr key={i} className="border-t border-slate-100"><td className="px-4 py-3">{definition.columns.map(column => <div key={column} className="md:hidden"><span className="text-xs text-slate-400">{column}: </span>{row[column] || '—'}</div>)}<span className="hidden md:inline">{row[definition.columns[0]] || '—'}</span></td>{definition.columns.slice(1).map(column => <td key={column} className="hidden px-4 py-3 md:table-cell">{row[column] || '—'}</td>)}<td className="px-4 py-3">{r.valid ? <span className="text-emerald-700">Ready</span> : <span className="text-red-700">Missing: {r.missing.join(', ')}</span>}</td></tr> })}</tbody></table></div>{rows.length > 50 && <p className="mt-2 text-xs text-slate-500">Showing first 50 rows in the preview. Validation covers all uploaded rows.</p>}<div className="mt-5 flex justify-end"><button disabled={!rows.length || invalidRows > 0 || importing} onClick={runImport} className="rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">{importing ? 'Importing...' : `Import ${validRows} ${definition.title.toLowerCase()}`}</button></div></div>}
+        {step === 'preview' && <div className="mt-7"><div className="flex flex-wrap gap-3 text-sm"><span className="rounded-lg bg-emerald-50 px-3 py-2 font-semibold text-emerald-700">{validRows} valid</span><span className={`rounded-lg px-3 py-2 font-semibold ${invalidRows ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-600'}`}>{invalidRows} with errors</span><span className="rounded-lg bg-slate-100 px-3 py-2 font-semibold text-slate-600">{rows.length} total</span></div><div className="mt-4 overflow-x-auto rounded-xl border border-slate-200"><table className="min-w-full text-left text-sm"><thead className="bg-slate-50"><tr><th className="px-4 py-3 font-semibold text-slate-600">Row</th>{definition.columns.map(column => <th key={column} className="px-4 py-3 font-semibold text-slate-600">{column}</th>)}<th className="px-4 py-3 font-semibold text-slate-600">Validation</th></tr></thead><tbody>{rows.slice(0, 50).map((row, i) => { const r = validation[i]; return <tr key={i} className="border-t border-slate-100"><td className="px-4 py-3 text-slate-400">{r.index}</td>{definition.columns.map(column => <td key={column} className="px-4 py-3">{row[column] || '—'}</td>)}<td className="px-4 py-3">{r.valid ? <span className="text-emerald-700">Ready</span> : <span className="text-red-700">{r.errors.join('; ')}</span>}</td></tr> })}</tbody></table></div>{rows.length > 50 && <p className="mt-2 text-xs text-slate-500">Showing first 50 rows in the preview. Validation covers all uploaded rows.</p>}<div className="mt-5 flex justify-end"><button disabled={!rows.length || invalidRows > 0 || importing} onClick={runImport} className="rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">{importing ? 'Importing...' : `Import ${validRows} ${definition.title.toLowerCase()}`}</button></div></div>}
       </div>
       <div className="mt-6 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800"><strong>Safety:</strong> every import is validated in the browser and again on the server. Duplicate and business rules are enforced by the database function before records are created.</div>
     </div>
