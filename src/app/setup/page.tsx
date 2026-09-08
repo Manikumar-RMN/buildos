@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/browser'
 type Lifecycle = { mode: 'setup' | 'live' | 'expired' | 'suspended'; setup_started_at: string; setup_expires_at: string; go_live_at: string | null }
 type ExtensionRequest = { id: string; requested_days: number; reason: string | null; status: string; created_at: string }
 type Progress = { label: string; count: number; href: string; required: boolean }
+type StoragePath = { bucket_id: string; storage_path: string }
 
 export default function SetupPage() {
   const router = useRouter()
@@ -69,12 +70,34 @@ export default function SetupPage() {
   }
 
   async function goLive() {
-    const confirmed = window.confirm('Go live now? BuildOS will permanently delete setup/test transactions. Your master and configuration data will be kept. This cannot be undone.')
+    const confirmed = window.confirm('Go live now? BuildOS will permanently delete setup/test transactions and their uploaded setup files. Your master and configuration data will be kept. This cannot be undone.')
     if (!confirmed) return
-    setGoLiveLoading(true); setMessage('')
+    setGoLiveLoading(true); setMessage('Preparing setup files for cleanup...')
     const supabase = createClient()
+
+    const { data: membership } = await supabase.from('organization_members').select('organization_id').eq('user_id', (await supabase.auth.getUser()).data.user?.id ?? '').eq('status', 'active').limit(1).maybeSingle()
+    if (!membership) { setMessage('Organization membership could not be verified.'); setGoLiveLoading(false); return }
+
+    const { data: storagePaths, error: pathError } = await supabase.rpc('get_setup_storage_paths', { target_org_id: membership.organization_id })
+    if (pathError) { setMessage(pathError.message); setGoLiveLoading(false); return }
+
+    setMessage('Completing Go Live...')
     const { error } = await supabase.rpc('go_live_workspace')
-    if (error) setMessage(error.message); else { await loadLifecycle(); setMessage('Your workspace is now live. Setup/test transactions have been removed.') }
+    if (error) { setMessage(error.message); setGoLiveLoading(false); return }
+
+    const paths = (storagePaths ?? []) as StoragePath[]
+    let storageDeleted = 0
+    const storageErrors: string[] = []
+    for (const item of paths) {
+      const { error: removeError } = await supabase.storage.from(item.bucket_id).remove([item.storage_path])
+      if (removeError) storageErrors.push(item.storage_path)
+      else storageDeleted += 1
+    }
+
+    await loadLifecycle()
+    setMessage(storageErrors.length === 0
+      ? `Your workspace is now live. Setup/test transactions and ${storageDeleted} uploaded setup file(s) were removed.`
+      : `Your workspace is now live, but ${storageErrors.length} setup file(s) could not be removed. Please contact BuildOS support.`)
     setGoLiveLoading(false)
   }
 
@@ -91,8 +114,8 @@ export default function SetupPage() {
       <div className="mb-8 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><span className={`rounded-full px-3 py-1 text-xs font-semibold ${isExpired ? 'bg-amber-50 text-amber-700' : lifecycle.mode === 'live' ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700'}`}>{lifecycle.mode.toUpperCase()}</span><h1 className="mt-4 text-3xl font-bold tracking-tight">{isExpired ? 'Your setup period has ended.' : lifecycle.mode === 'live' ? 'Your workspace is live.' : 'Configure BuildOS before you go live.'}</h1><p className="mt-2 max-w-2xl text-slate-600">{isExpired ? 'Request more time if your team needs it. BuildOS will not make your workspace live automatically.' : lifecycle.mode === 'live' ? 'Your team can now use BuildOS for real operational work.' : 'Configure your masters, test the workflows and train your team before starting real work.'}</p></div>{lifecycle.mode !== 'live' && <button onClick={() => router.push('/setup/progress')} className="rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:border-blue-300">View setup progress</button>}</div>
       {lifecycle.mode !== 'live' && <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between text-sm"><span className="font-semibold">Setup readiness</span><span className="font-bold text-blue-600">{percent}%</span></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${percent}%` }} /></div><div className="mt-3 flex flex-wrap gap-2">{progress.filter(p => p.count === 0).slice(0, 4).map(p => <button key={p.label} onClick={() => router.push(p.href)} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600 hover:bg-slate-200">Add {p.label}</button>)}</div></div>}
       <div className="grid gap-6 md:grid-cols-3">{[['1','Configure','Import masters and set up your workspace.'],['2','Test','Run sample workflows and train your team.'],['3','Go Live','When ready, remove setup/test transactions and start real work.']].map(([n,t,d]) => <div key={n} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">{n}</div><h2 className="mt-5 font-semibold">{t}</h2><p className="mt-2 text-sm leading-6 text-slate-500">{d}</p></div>)}</div>
-      {lifecycle.mode === 'setup' && <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-lg font-semibold">Ready to start real work?</h2><p className="mt-1 text-sm text-slate-500">Setup period ends: {expires}</p><p className="mt-3 text-sm text-slate-600">Go Live permanently deletes only records identified as setup/test transactions. Master and configuration data stays in your workspace.</p><button onClick={goLive} disabled={goLiveLoading} className="mt-5 rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{goLiveLoading ? 'Taking you live...' : 'Go Live'}</button></div>}
-      {isExpired && <div className="mt-8 rounded-2xl border border-amber-200 bg-amber-50 p-6"><h2 className="font-semibold text-amber-800">Need more setup time?</h2><p className="mt-1 text-sm text-amber-700">Request 1–30 additional days. BuildOS will not make your workspace live automatically.</p>{request ? <div className="mt-4 rounded-xl bg-white p-4 text-sm text-slate-700">Request pending: <strong>{request.requested_days} days</strong>{request.reason ? ` • ${request.reason}` : ''}</div> : <form onSubmit={requestExtension} className="mt-4 space-y-3"><div className="grid gap-3 sm:grid-cols-[160px_1fr]"><label className="text-sm font-medium text-slate-700">Days<select value={extensionDays} onChange={e => setExtensionDays(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900"><option value="3">3 days</option><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option></select></label><label className="text-sm font-medium text-slate-700">Reason<textarea value={reason} onChange={e => setReason(e.target.value)} rows={2} placeholder="Tell us what remains to be completed..." className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900" /></label></div><button disabled={requestLoading} className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{requestLoading ? 'Submitting...' : 'Request extension'}</button></form>}</div>}
+      {lifecycle.mode === 'setup' && <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-lg font-semibold">Ready to start real work?</h2><p className="mt-1 text-sm text-slate-500">Setup period ends: {expires}</p><p className="mt-3 text-sm text-slate-600">Go Live permanently deletes only records identified as setup/test transactions and their uploaded setup files. Master and configuration data stays in your workspace.</p><button onClick={goLive} disabled={goLiveLoading} className="mt-5 rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{goLiveLoading ? 'Processing...' : 'Go Live'}</button></div>}
+      {isExpired && <div className="mt-8 rounded-2xl border border-amber-200 bg-amber-50 p-6"><h2 className="font-semibold text-amber-800">Need more setup time?</h2><p className="mt-1 text-sm text-amber-700">Request 1–30 additional days. BuildOS will not make your workspace live automatically.</p>{request ? <div className="mt-4 rounded-xl bg-white p-4 text-sm text-slate-700">Request pending: <strong>{request.requested_days} days</strong>{request.reason ? ` • ${request.reason}` : ''}</div> : <form onSubmit={requestExtension} className="mt-4 space-y-3"><div className="grid gap-3 sm:grid-cols-[160px_1fr]"><label className="text-sm font-medium text-slate-700">Days<select value={extensionDays} onChange={e => setExtensionDays(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900"><option value="3">3 days</option><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option></select></label><label className="text-sm font-medium text-slate-700">Reason<textarea value={reason} onChange={e => setReason(e.target.value)} rows={2} placeholder="Tell us what remains to be completed..." className="mt-1 w-full rounded-lg border border-slate-300 bg-white text-slate-900 px-3 py-2" /></label></div><button disabled={requestLoading} className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{requestLoading ? 'Submitting...' : 'Request extension'}</button></form>}</div>}
       {lifecycle.mode === 'live' && <div className="mt-8 rounded-2xl border border-emerald-200 bg-emerald-50 p-6"><h2 className="font-semibold text-emerald-800">Your workspace is live.</h2><p className="mt-1 text-sm text-emerald-700">Go Live completed {lifecycle.go_live_at ? new Date(lifecycle.go_live_at).toLocaleString('en-IN') : ''}.</p></div>}
       {message && <div className="mt-6 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700">{message}</div>}
     </div>
