@@ -8,7 +8,6 @@ export default function OnboardingPage() {
   const router = useRouter()
   const [fullName, setFullName] = useState('')
   const [organizationName, setOrganizationName] = useState('')
-  const [clientCode, setClientCode] = useState('')
   const [branchName, setBranchName] = useState('')
   const [branchCode, setBranchCode] = useState('')
   const [message, setMessage] = useState('')
@@ -40,7 +39,7 @@ export default function OnboardingPage() {
     const supabase = createClient()
     const { data, error } = await supabase.rpc('create_organization_with_owner', {
       p_name: organizationName,
-      p_client_code: clientCode,
+      p_client_code: null,
       p_branch_name: branchName,
       p_branch_code: branchCode,
       p_full_name: fullName,
@@ -115,36 +114,21 @@ export default function OnboardingPage() {
             <h2 className="text-lg font-semibold text-slate-900">Company</h2>
             <p className="mt-1 text-sm text-slate-500">Create the organization that will own your BuildOS workspace.</p>
 
-            <div className="mt-5 grid gap-5 md:grid-cols-2">
-              <div className="md:col-span-2">
-                <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Organization name
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={organizationName}
-                  onChange={(event) => setOrganizationName(event.target.value)}
-                  className={inputClassName}
-                  placeholder="Your construction company"
-                />
-              </div>
-
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">
-                  Client Code
-                </label>
-                <input
-                  type="text"
-                  required
-                  maxLength={20}
-                  value={clientCode}
-                  onChange={(event) => setClientCode(event.target.value.toUpperCase())}
-                  className={`${inputClassName} uppercase`}
-                  placeholder="ABC001"
-                />
-                <p className="mt-1 text-xs text-slate-400">A unique code for your organization.</p>
-              </div>
+            <div className="mt-5">
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Organization name
+              </label>
+              <input
+                type="text"
+                required
+                value={organizationName}
+                onChange={(event) => setOrganizationName(event.target.value)}
+                className={inputClassName}
+                placeholder="Your construction company"
+              />
+              <p className="mt-2 text-xs text-slate-400">
+                BuildOS will automatically generate a unique Client Code for this organization.
+              </p>
             </div>
           </section>
 
