@@ -1,0 +1,84 @@
+'use client'
+
+import { useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
+
+type ImportType = 'customers' | 'vendors' | 'workers' | 'materials'
+
+type Row = Record<string, string>
+
+const definitions: Record<ImportType, { title: string; description: string; columns: string[]; sample: string }> = {
+  customers: { title: 'Customers', description: 'Import customer masters before creating projects and quotations.', columns: ['name', 'phone', 'email'], sample: 'ABC Builders,9876543210,accounts@example.com' },
+  vendors: { title: 'Vendors', description: 'Import suppliers and service vendors used for procurement.', columns: ['name', 'phone', 'email'], sample: 'Sample Supplier,9876543210,sales@example.com' },
+  workers: { title: 'Workers', description: 'Import workers who can be assigned to site teams and labour records.', columns: ['name', 'phone', 'role'], sample: 'Ravi Kumar,9876543210,Mason' },
+  materials: { title: 'Materials', description: 'Import the materials used across your projects.', columns: ['name', 'unit', 'category'], sample: 'Cement,bag,Construction' },
+}
+
+function parseCsv(text: string): Row[] {
+  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+  if (lines.length < 2) return []
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
+  return lines.slice(1).map(line => {
+    const values = line.split(',')
+    return Object.fromEntries(headers.map((header, index) => [header, (values[index] ?? '').trim()]))
+  })
+}
+
+export default function ImportPage() {
+  const router = useRouter()
+  const [type, setType] = useState<ImportType>('customers')
+  const [rows, setRows] = useState<Row[]>([])
+  const [fileName, setFileName] = useState('')
+  const [error, setError] = useState('')
+  const [step, setStep] = useState<'upload' | 'preview'>('upload')
+
+  const definition = definitions[type]
+  const validation = useMemo(() => rows.map((row, index) => {
+    const missing = definition.columns.filter(column => !row[column])
+    return { index: index + 2, missing, valid: missing.length === 0 }
+  }), [rows, definition])
+  const validRows = validation.filter(row => row.valid).length
+  const invalidRows = validation.length - validRows
+
+  function changeType(value: ImportType) {
+    setType(value); setRows([]); setFileName(''); setError(''); setStep('upload')
+  }
+
+  function handleFile(file: File | undefined) {
+    if (!file) return
+    setError(''); setFileName(file.name)
+    if (!file.name.toLowerCase().endsWith('.csv')) { setError('Please upload a CSV file.'); return }
+    const reader = new FileReader()
+    reader.onload = () => {
+      const parsed = parseCsv(String(reader.result ?? ''))
+      if (!parsed.length) { setError('The file needs a header row and at least one data row.'); setRows([]); return }
+      setRows(parsed); setStep('preview')
+    }
+    reader.onerror = () => setError('Could not read this file. Please try again.')
+    reader.readAsText(file)
+  }
+
+  function downloadTemplate() {
+    const csv = `${definition.columns.join(',')}\n${definition.sample}\n`
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+    const link = document.createElement('a'); link.href = url; link.download = `buildos-${type}-template.csv`; link.click(); URL.revokeObjectURL(url)
+  }
+
+  return <main className="min-h-screen bg-slate-50 text-slate-900">
+    <header className="border-b border-slate-200 bg-white"><div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4"><div><div className="text-sm font-bold tracking-widest text-blue-600">BUILDOS</div><div className="text-xs text-slate-500">Master data import</div></div><button onClick={() => router.push('/setup')} className="text-sm font-medium text-slate-600 hover:text-slate-900">Back to setup</button></div></header>
+    <div className="mx-auto max-w-6xl px-6 py-10">
+      <div className="mb-8"><h1 className="text-3xl font-bold tracking-tight">Import your masters</h1><p className="mt-2 max-w-2xl text-slate-600">Upload a CSV, validate it, preview the result, then import. Start with a template so your team uses the expected columns.</p></div>
+      <div className="mb-6 flex items-center gap-2 text-sm"><span className={`rounded-full px-3 py-1 font-semibold ${step === 'upload' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700'}`}>1 Upload</span><span className="text-slate-300">→</span><span className={`rounded-full px-3 py-1 font-semibold ${step === 'preview' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500'}`}>2 Validate & Preview</span><span className="text-slate-300">→</span><span className="rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-500">3 Import</span></div>
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="grid gap-5 md:grid-cols-[220px_1fr]">
+          <div><label className="text-sm font-semibold text-slate-700">Master type<select value={type} onChange={e => changeType(e.target.value as ImportType)} className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-slate-900"><option value="customers">Customers</option><option value="vendors">Vendors</option><option value="workers">Workers</option><option value="materials">Materials</option></select></label></div>
+          <div><h2 className="font-semibold">{definition.title}</h2><p className="mt-1 text-sm text-slate-500">{definition.description}</p><div className="mt-4 flex flex-wrap gap-2">{definition.columns.map(column => <span key={column} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">{column}</span>)}</div></div>
+        </div>
+        <div className="mt-7 flex flex-col gap-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold">{fileName || 'Choose a CSV file'}</p><p className="mt-1 text-sm text-slate-500">Required columns: {definition.columns.join(', ')}</p></div><div className="flex gap-2"><button onClick={downloadTemplate} className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700">Download template</button><label className="cursor-pointer rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">Choose CSV<input type="file" accept=".csv,text/csv" className="hidden" onChange={e => handleFile(e.target.files?.[0])} /></label></div></div>
+        {error && <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+        {step === 'preview' && <div className="mt-7"><div className="flex flex-wrap gap-3 text-sm"><span className="rounded-lg bg-emerald-50 px-3 py-2 font-semibold text-emerald-700">{validRows} valid</span><span className={`rounded-lg px-3 py-2 font-semibold ${invalidRows ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-600'}`}>{invalidRows} with errors</span><span className="rounded-lg bg-slate-100 px-3 py-2 font-semibold text-slate-600">{rows.length} total</span></div><div className="mt-4 overflow-x-auto rounded-xl border border-slate-200"><table className="min-w-full text-left text-sm"><thead className="bg-slate-50"><tr>{definition.columns.map(column => <th key={column} className="px-4 py-3 font-semibold text-slate-600">{column}</th>)}<th className="px-4 py-3 font-semibold text-slate-600">Validation</th></tr></thead><tbody>{rows.slice(0, 50).map((row, i) => { const result = validation[i]; return <tr key={i} className="border-t border-slate-100"><td className="px-4 py-3">{definition.columns.map(column => <div key={column} className="md:hidden"><span className="text-xs text-slate-400">{column}: </span>{row[column] || '—'}</div>) }<span className="hidden md:inline">{row[definition.columns[0]] || '—'}</span></td>{definition.columns.slice(1).map(column => <td key={column} className="hidden px-4 py-3 md:table-cell">{row[column] || '—'}</td>)}<td className="px-4 py-3">{result.valid ? <span className="text-emerald-700">Ready</span> : <span className="text-red-700">Missing: {result.missing.join(', ')}</span>}</td></tr> })}</tbody></table></div>{rows.length > 50 && <p className="mt-2 text-xs text-slate-500">Showing first 50 rows in the preview. Validation covers all uploaded rows.</p>}<div className="mt-5 flex justify-end"><button disabled={!rows.length || invalidRows > 0} onClick={() => setError('Import execution will be connected after database-side import validation is finalized.')} className="rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">Import {validRows} rows</button></div></div>}
+      </div>
+      <div className="mt-6 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800"><strong>Safety:</strong> this first version validates the file in the browser and does not write anything to your database. Import execution will be enabled only after server-side validation and duplicate handling are in place.</div>
+    </div>
+  </main>
+}
