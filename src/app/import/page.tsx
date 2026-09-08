@@ -3,9 +3,11 @@
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/browser'
+import { parseCsv, type CsvRow } from '@/lib/csv'
 
 type ImportType = 'customers' | 'vendors' | 'workers' | 'materials'
-type Row = Record<string, string>
+
+type Validation = { index: number; errors: string[]; valid: boolean }
 
 const definitions: Record<ImportType, { title: string; description: string; columns: string[]; sample: string }> = {
   customers: { title: 'Customers', description: 'Import customer masters before creating projects and quotations.', columns: ['name', 'phone', 'email'], sample: 'ABC Builders,9876543210,accounts@example.com' },
@@ -14,49 +16,17 @@ const definitions: Record<ImportType, { title: string; description: string; colu
   materials: { title: 'Materials', description: 'Import the materials used across your projects.', columns: ['name', 'unit', 'category'], sample: 'Cement,bag,Construction' },
 }
 
-function parseCsv(text: string): Row[] {
-  const rows: string[][] = []
-  let row: string[] = []
-  let value = ''
-  let quoted = false
-
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i]
-    const next = text[i + 1]
-    if (char === '"') {
-      if (quoted && next === '"') { value += '"'; i++ }
-      else quoted = !quoted
-    } else if (char === ',' && !quoted) {
-      row.push(value.trim()); value = ''
-    } else if ((char === '\n' || char === '\r') && !quoted) {
-      if (char === '\r' && next === '\n') i++
-      row.push(value.trim()); value = ''
-      if (row.some(cell => cell !== '')) rows.push(row)
-      row = []
-    } else value += char
-  }
-  if (value || row.length) {
-    row.push(value.trim())
-    if (row.some(cell => cell !== '')) rows.push(row)
-  }
-  if (rows.length < 2) return []
-
-  const headers = rows[0].map(h => h.trim().toLowerCase())
-  if (headers.some(Boolean) === false || new Set(headers).size !== headers.length) return []
-  return rows.slice(1).map(values => Object.fromEntries(headers.map((header, index) => [header, (values[index] ?? '').trim()])))
-}
-
-function validateRow(row: Row, columns: string[]) {
-  const missing = columns.filter(column => !row[column])
-  const errors = [...missing.map(column => `${column} is required`)]
+function validateRow(row: CsvRow, columns: string[], type: ImportType): string[] {
+  const errors = columns.filter(column => !row[column]).map(column => `${column} is required`)
   if (row.email && !/^\S+@\S+\.\S+$/.test(row.email)) errors.push('email is not valid')
-  return { missing, errors, valid: errors.length === 0 }
+  if (type === 'workers' && row.daily_rate && Number.isNaN(Number(row.daily_rate))) errors.push('daily_rate must be a number')
+  return errors
 }
 
 export default function ImportPage() {
   const router = useRouter()
   const [type, setType] = useState<ImportType>('customers')
-  const [rows, setRows] = useState<Row[]>([])
+  const [rows, setRows] = useState<CsvRow[]>([])
   const [fileName, setFileName] = useState('')
   const [error, setError] = useState('')
   const [result, setResult] = useState<{ imported?: number } | null>(null)
@@ -64,7 +34,10 @@ export default function ImportPage() {
   const [importing, setImporting] = useState(false)
 
   const definition = definitions[type]
-  const validation = useMemo(() => rows.map((row, index) => ({ index: index + 2, ...validateRow(row, definition.columns) })), [rows, definition])
+  const validation: Validation[] = useMemo(() => rows.map((row, index) => {
+    const errors = validateRow(row, definition.columns, type)
+    return { index: index + 2, errors, valid: errors.length === 0 }
+  }), [rows, definition.columns, type])
   const validRows = validation.filter(row => row.valid).length
   const invalidRows = validation.length - validRows
 
@@ -79,8 +52,11 @@ export default function ImportPage() {
     const reader = new FileReader()
     reader.onload = () => {
       const parsed = parseCsv(String(reader.result ?? ''))
-      if (!parsed.length) { setError('Could not read the CSV. Check that it has a unique header row and at least one data row.'); setRows([]); return }
-      setRows(parsed); setStep('preview')
+      if (parsed.error) { setError(parsed.error); setRows([]); setStep('upload'); return }
+      const missingColumns = definition.columns.filter(column => !parsed.headers.includes(column))
+      if (missingColumns.length) { setError(`Missing required columns: ${missingColumns.join(', ')}`); setRows([]); setStep('upload'); return }
+      if (parsed.rows.length > 5000) { setError('A single import can contain at most 5,000 rows.'); setRows([]); setStep('upload'); return }
+      setRows(parsed.rows); setStep('preview')
     }
     reader.onerror = () => setError('Could not read this file. Please try again.')
     reader.readAsText(file)
