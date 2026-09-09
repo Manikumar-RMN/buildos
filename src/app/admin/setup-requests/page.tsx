@@ -21,7 +21,7 @@ export default function SetupRequestsAdminPage() {
     if (me?.platform_role !== 'platform_admin') { router.replace('/'); return }
     const { data, error } = await s.from('setup_extension_requests').select('id,organization_id,requested_by,requested_days,reason,status,created_at,organizations(name,client_code)').order('created_at', { ascending: false })
     if (error) setMessage(error.message)
-    setRows((data ?? []) as Row[])
+    setRows(data ?? [])
     setLoading(false)
   }
 
