@@ -1,0 +1,10 @@
+{
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": {
+      "label": "BuildOS web app",
+      "onAutoForward": "openBrowser",
+      "protocol": "https"
+    }
+  }
+}
