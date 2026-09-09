@@ -24,6 +24,19 @@ export default function OnboardingPage() {
         return
       }
 
+      const { data: member } = await supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', data.user.id)
+        .eq('status', 'active')
+        .limit(1)
+        .maybeSingle()
+
+      if (member) {
+        window.location.replace('/')
+        return
+      }
+
       setFullName(data.user.user_metadata?.full_name ?? '')
       setCheckingSession(false)
     }
@@ -57,8 +70,7 @@ export default function OnboardingPage() {
       return
     }
 
-    router.replace('/')
-    router.refresh()
+    window.location.replace('/')
   }
 
   if (checkingSession) {
