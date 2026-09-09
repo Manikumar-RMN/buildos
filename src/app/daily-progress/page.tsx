@@ -38,13 +38,15 @@ export default function DailyProgressPage() {
       supabase.from('daily_progress').select('id,project_id,site_id,progress_date,progress_percent,notes,issues,weather,projects(name),project_sites(name),daily_progress_photos(id,daily_progress_id,storage_path,caption,created_at)').eq('organization_id', membership.organization_id).order('progress_date', { ascending: false }).limit(50)
     ])
     if (projectError || siteError || progressError) setError((projectError || siteError || progressError)?.message || 'Unable to load daily progress.')
-    const progressWithUrls = await Promise.all((progressData ?? []).map(async (record: Progress) => {
+    const progressWithUrls: Progress[] = await Promise.all((progressData ?? []).map(async record => {
       const recordPhotos = record.daily_progress_photos ?? []
       const signedPhotos = await Promise.all(recordPhotos.map(async photo => {
         const { data } = await supabase.storage.from(BUCKET).createSignedUrl(photo.storage_path, 60 * 60)
         return { ...photo, signedUrl: data?.signedUrl }
       }))
-      return { ...record, daily_progress_photos: signedPhotos }
+      const projectRelation = Array.isArray(record.projects) ? record.projects[0] ?? null : record.projects
+      const siteRelation = Array.isArray(record.project_sites) ? record.project_sites[0] ?? null : record.project_sites
+      return { ...record, projects: projectRelation, project_sites: siteRelation, daily_progress_photos: signedPhotos }
     }))
     setProjects(projectData ?? [])
     setSites(siteData ?? [])
@@ -53,7 +55,6 @@ export default function DailyProgressPage() {
   }
 
   useEffect(() => { load() }, [router])
-
   const projectSites = sites.filter(s => s.project_id === form.project_id)
 
   async function saveProgress(e: FormEvent) {
@@ -65,44 +66,25 @@ export default function DailyProgressPage() {
     const supabase = createClient()
     const { data: userData } = await supabase.auth.getUser()
     if (!userData.user) { router.replace('/login'); return }
-
     const { data: progress, error: insertError } = await supabase.from('daily_progress').insert({ organization_id: orgId, project_id: form.project_id, site_id: form.site_id || null, progress_date: form.progress_date, progress_percent: form.progress_percent === '' ? null : Number(form.progress_percent), weather: form.weather.trim() || null, notes: form.notes.trim() || null, issues: form.issues.trim() || null, created_by: userData.user.id }).select('id').single()
     if (insertError || !progress) { setError(insertError?.message || 'Unable to save daily update.'); setSaving(false); return }
-
     const uploadedPaths: string[] = []
     for (const photo of photos) {
       const safeName = photo.name.replace(/[^a-zA-Z0-9._-]/g, '_')
       const path = `${orgId}/${userData.user.id}/daily-progress/${progress.id}/${crypto.randomUUID()}-${safeName}`
       const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, photo, { contentType: photo.type, upsert: false })
-      if (uploadError) {
-        await supabase.storage.from(BUCKET).remove(uploadedPaths)
-        await supabase.from('daily_progress').delete().eq('id', progress.id)
-        setError(uploadError.message)
-        setSaving(false)
-        return
-      }
+      if (uploadError) { await supabase.storage.from(BUCKET).remove(uploadedPaths); await supabase.from('daily_progress').delete().eq('id', progress.id); setError(uploadError.message); setSaving(false); return }
       uploadedPaths.push(path)
       const { error: photoError } = await supabase.from('daily_progress_photos').insert({ daily_progress_id: progress.id, storage_path: path, caption: null })
-      if (photoError) {
-        await supabase.storage.from(BUCKET).remove(uploadedPaths)
-        await supabase.from('daily_progress').delete().eq('id', progress.id)
-        setError(photoError.message)
-        setSaving(false)
-        return
-      }
+      if (photoError) { await supabase.storage.from(BUCKET).remove(uploadedPaths); await supabase.from('daily_progress').delete().eq('id', progress.id); setError(photoError.message); setSaving(false); return }
     }
-
-    setForm({ project_id: '', site_id: '', progress_date: new Date().toISOString().slice(0, 10), progress_percent: '', weather: '', notes: '', issues: '' })
-    setPhotos([])
-    setShowDetails(false)
+    setForm({ project_id: '', site_id: '', progress_date: new Date().toISOString().slice(0, 10), progress_percent: '', weather: '', notes: '', issues: '' }); setPhotos([]); setShowDetails(false)
     const input = document.getElementById('progress-photos') as HTMLInputElement | null
     if (input) input.value = ''
-    await load()
-    setSaving(false)
+    await load(); setSaving(false)
   }
 
   if (loading) return <main className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-500">Loading daily progress...</main>
-
   return <main className="min-h-screen bg-slate-50 text-slate-900 pb-24 lg:pb-0">
     <header className="border-b border-slate-200 bg-white"><div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 sm:py-4"><div><button onClick={() => router.push('/')} className="text-sm font-bold tracking-widest text-blue-600">BUILDOS</button><p className="text-xs text-slate-500">Daily Progress</p></div><div className="flex gap-3 text-sm"><button onClick={() => router.push('/tasks')} className="text-slate-600 hover:text-slate-900">Tasks</button><button onClick={() => router.push('/projects')} className="text-slate-600 hover:text-slate-900">Projects</button></div></div></header>
     <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-8"><div className="mb-5 sm:mb-6"><p className="text-sm font-medium text-slate-500">Site activity</p><h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">Daily Progress</h1><p className="mt-2 text-sm text-slate-500">A quick site update. Add only what matters today.</p></div>
